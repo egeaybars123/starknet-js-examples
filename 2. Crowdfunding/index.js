@@ -20,7 +20,7 @@ const compiledCrowdFundAbi = json.parse(
 //Initialize contract objects - Crowdfunding and ETH contract (for approving ETH to transfer to our contract)
 const ETHAddress = '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7'; //Starknet Sepolia ETH Contract Address
 const tokenContract = new Contract(compiledERC20Abi, ETHAddress, provider);
-const crowdfundingAddr = '0x06c53826b627f586469c4c983f420906cf94aedf1fb9c867accca15a53edac73';
+const crowdfundingAddr = '0x06df0d52fe6157eac91f2788c2247be1870fd4e73355e65b228b5fa886f762a8';
 const crowdfundingContract = new Contract(compiledCrowdFundAbi.abi, crowdfundingAddr, provider);
 
 tokenContract.connect(account);
@@ -72,6 +72,16 @@ async function getLatestCampaignNo() {
     console.log('Current campaign no: ', campaign_no.toString());
 }
 
+async function getFunderInfo(campaign_no, funder_addr) {
+    const funder_info = await crowdfundingContract.get_funder_info(campaign_no, funder_addr);
+    console.log('Funder info: ', funder_info);
+}
+
+async function getCampaignInfo(campaign_no) {
+    const campaign_info = await crowdfundingContract.get_campaign_info(campaign_no);
+    console.log('Campaign info: ', campaign_info);
+}
+
 async function withdrawContribution(campaign_no) {
     const withdrawCall = crowdfundingContract.populate('withdraw_contribution',
         [campaign_no])
@@ -94,3 +104,6 @@ async function withdrawFunds(campaign_no) {
 //getFunderContribution(2, accountAddress);
 //withdrawContribution(2);
 //withdrawFunds(2)
+
+//getFunderInfo(1, accountAddress)
+//getCampaignInfo(1)
