@@ -312,3 +312,22 @@ After that, let's write the remaining view functions that will allow us to get t
 ```
 
 ## Declaring and Deploying the Crowdfunding contract
+
+We will declare and deploy our Crowdfunding contract using Starkli. This tutorial assumes that you already set up your account with Starkli. In order to start with introduction to Starkli, you can check [here](https://medium.com/starknet-edu/starkli-the-new-starknet-cli-86ea914a2933) and [here](https://github.com/egeaybars123/starknet-js-examples/blob/main/1.%20Simple%20Storage/README.md#declaring-and-deploying-the-simplestorage-contract).
+
+**Note:** The command below is written to run in the directory of the Scarb folder.
+**Note:** The `--watch` takes the `./target/dev/project_name_ContractName.contract_class.json` as an argument where the Sierra program and the ABI of the contract is stored.
+
+```console
+$ starkli declare --keystore /path/to//keystore.json --account /path/to/account.json --watch ./target/dev/crowdfunding_Crowdfunding.contract_class.json
+```
+
+After that, the contract class is declared, and our contract is ready to be deployed. Do not forget to include class hash as an argument to `--watch`:
+
+**Note:** A kindly reminder that our contract has a constructor function where we need to set the campaign duration in seconds, so we need to put campaign duration in seconds as an argument while deploying the contract. We should set a small number for the sake of testing the withdraw functions (600 seconds = 10 minutes is fine). See below to find out where to put the campaign duration in seconds:
+
+```console
+starkli deploy --keystore /path/to//keystore.json --account /path/to/account.json --watch PASTE_CLASS_HASH_HERE CAMPAIGN_DURATION_IN_SECONDS 
+```
+
+After the deploy command, we will be able to see the address of the Crowdfunding contract. Now, we are ready to interact with our contract using Starknet-js!
