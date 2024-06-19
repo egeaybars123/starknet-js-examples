@@ -2,13 +2,6 @@
 
 In this tutorial, you will deploy a Crowdfunding contract in Cairo on Starknet Sepolia Testnet. Then, using Starknet-js, you will learn how to interact with the Crowdfunding contract.
 
-Before getting started, here are the prerequisites for the tutorial content: 
-- Basic knowledge of Cairo: you can get familiar with the Cairo language, and learn how to build a simple smart contract with Cairo [here](https://book.cairo-lang.org/).
-
-- Scarb for compiling Cairo code and packaging support: follow [here](https://docs.swmansion.com/scarb/download.html).
-
-- Starkli for the declaration and deployment of Cairo contracts: follow [here](https://book.starkli.rs/installation).
-
 ## Writing Crowdfunding contract in Cairo:
 
 In order to start writing our Cairo code, the functionalities of our code should be determined. Here is what our contract should be able to do: 
@@ -305,9 +298,28 @@ After that, let's write the remaining view functions that will allow us to get t
 
 ```rs
 //inside CrowdfundingImpl
+
     //Get the current campaign number
     fn get_latest_campaign_no(self: @ContractState) -> u64 {
             self.campaign_no.read()
+    }
+    //Get the Funder struct for a campaign.
+    fn get_funder_info(
+            self: @ContractState, campaign_no: u64, funder_addr: ContractAddress
+        ) -> Funder {
+            let identifier_hash = self.get_funder_identifier(campaign_no, funder_addr);
+
+            self.funder_no.read(identifier_hash)
+        }
+
+    //Get the Campaign struct for a campaign
+    fn get_campaign_info(self: @ContractState, campaign_no: u64) -> Campaign {
+        self.campaigns.read(campaign_no)
+    }
+
+    //Returns the current campaign_no. The number returned + 1 is the new campaign_no
+    fn get_latest_campaign_no(self: @ContractState) -> u64 {
+        self.campaign_no.read()
     }
 ```
 
@@ -331,3 +343,78 @@ starkli deploy --keystore /path/to//keystore.json --account /path/to/account.jso
 ```
 
 After the deploy command, we will be able to see the address of the Crowdfunding contract. Now, we are ready to interact with our contract using Starknet-js!
+
+## Interacting with the Crowdfunding contract
+We will interact with our contract using Starknet-js. Create a new folder and initialize your npm package:
+```console
+$ npm init
+```
+
+Now, `package.json` file is created. Change the type of the package to a module. Add the line below in the object in `package.json`:
+
+```json
+"type": "module"
+```
+
+Let's add Starknet-js as a dependency:
+
+```console
+$ npm install starknet@next
+$ npm install dotenv
+```
+Create a file named `index.js` where we will write JavaScript code to interact with our contract. Let's start our code by importing from Starknet-js, and from other libraries we will need:
+
+```js
+import { Account, RpcProvider, json, Contract, cairo, shortString } from 'starknet';
+import fs from 'fs';
+import * as dotenv from 'dotenv';
+dotenv.config();
+
+const provider = new RpcProvider({ nodeUrl: 'https://free-rpc.nethermind.io/sepolia-juno' });
+const accountAddress = 'PASTE_YOUR_ACCOUNT_ADDRESS_HERE';
+const privateKey = process.env.PRIVATE_KEY;
+
+//Create an Account object. We need it to sign transactions
+//Add "1" as the last parameter to show that the account is written in Cairo 1.0
+const account = new Account(provider, accountAddress, privateKey, "1");
+
+tokenContract.connect(account);
+crowdfundingContract.connect(account);
+```
+
+Import the necessary classes and functions from the starknet-js module and other libraries (dotenv and fs). Then, create your Provider object with the free RPC service from Nethermind. The provider gets our transactions and broadcasts them to the Starknet network. Also, the provider returns the result of our queries of the Starknet network and contracts. Also, please import your private key as an environment variable and include the .env in the .gitignore file to prevent it from being compromised. 
+
+Next, we will need the ABI for the contracts we will interact with. The contracts we will be interacting with are ERC20 contracts (it could be ETH, STRK or your own token) and our Crowdfunding contract. 
+
+For the ERC20 ABI, we can copy it from [ETH contract](https://sepolia.starkscan.co/contract/0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7#class-code-history) on Starknet Sepolia Testnet or simply get it from [this](https://github.com/egeaybars123/starknet-js-examples/blob/main/2.%20Crowdfunding/erc20_abi.json) repository.
+
+For the Crowdfunding contract ABI, you can copy it from `./target/dev/crowdfunding_Crowdfunding.contract_class.json` in your Scarb folder.
+
+```js
+const compiledERC20Abi = json.parse(
+    fs.readFileSync('./erc20_abi.json').toString('ascii')
+);
+
+const compiledCrowdFundAbi = json.parse(
+    fs.readFileSync('./crowdfunding_abi.json').toString('ascii')
+);
+```
+
+The ABI strings are ready, and let's create Contract objects. We will call the functions from these objects.The campaign we will create will require users to fund in Sepolia ETH, so the token we chose for this tutorial is Sepolia ETH, but you can choose other tokens or even create your own token.
+
+```js
+//Starknet Sepolia ETH Contract Address
+const ETHAddress = '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7'; 
+const tokenContract = new Contract(compiledERC20Abi, ETHAddress, provider);
+
+const crowdfundingAddr = 'PASTE_CONTRACT_ADDRESS_HERE';
+const crowdfundingContract = new Contract(compiledCrowdFundAbi.abi, crowdfundingAddr, provider);
+```
+
+Then, we need to connect our Account object to the Contract objects in order to sign our transactions.
+```js
+tokenContract.connect(account);
+crowdfundingContract.connect(account);
+```
+
+Now, let's get started with interacting our contract.

@@ -3,7 +3,9 @@ import fs from 'fs';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-const provider = new RpcProvider({ nodeUrl: 'https://starknet-sepolia.public.blastapi.io' });
+const provider = new RpcProvider({ nodeUrl: 'https://free-rpc.nethermind.io/sepolia-juno' });
+//0x05b0D30B02349c93b30e02f1A0C3F3F44914D9fbA691581a7Cdfe11f88972853
+//0x067981c7F9f55BCbdD4e0d0a9C5BBCeA77dAcB42cccbf13554A847d6353F728e
 const accountAddress = '0x067981c7F9f55BCbdD4e0d0a9C5BBCeA77dAcB42cccbf13554A847d6353F728e';
 const privateKey = process.env.PRIVATE_KEY;
 
@@ -99,11 +101,14 @@ async function withdrawFunds(campaign_no) {
 }
 
 //getLatestCampaignNo();
-//createCampaign('StarkTest', accountAddress, ETHAddress, 0.001);
-//contribute(2, 0.001);
-//getFunderContribution(2, accountAddress);
+//createCampaign('TestCampaign', accountAddress, ETHAddress, 0.001);
+//contribute(2, 0.1);
+getFunderContribution(2, accountAddress);
 //withdrawContribution(2);
-//withdrawFunds(2)
+//withdrawFunds(1)
+
+const balance = await tokenContract.balanceOf(accountAddress)
+console.log(balance)
 
 //getFunderInfo(1, accountAddress)
 //getCampaignInfo(1)
