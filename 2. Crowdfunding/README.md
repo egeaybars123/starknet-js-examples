@@ -57,6 +57,7 @@ Next, we need to define our interface. Below, you can see all the external funct
 ```rs
 #[starknet::interface]
 trait ICrowdfunding<TContractState> {
+    //write functions
     fn create_campaign(
         ref self: TContractState,
         _name: felt252,
@@ -67,29 +68,32 @@ trait ICrowdfunding<TContractState> {
     fn contribute(ref self: TContractState, campaign_no: u64, amount: u256);
     fn withdraw_funds(ref self: TContractState, campaign_no: u64);
     fn withdraw_contribution(ref self: TContractState, campaign_no: u64);
-    fn get_funder_identifier(
+
+    //read functions
+    fn get_funder_info(
         self: @TContractState, campaign_no: u64, funder_addr: ContractAddress
-    ) -> felt252;
-    fn get_funder_contribution(self: @TContractState, identifier_hash: felt252) -> u256;
+    ) -> Funder;
+    fn get_campaign_info(self: @TContractState, campaign_no: u64) -> Campaign;
+    fn get_campaign_duration(self: @TContractState) -> u64;
     fn get_latest_campaign_no(self: @TContractState) -> u64;
 }
 ```
-Let's define our contract, and start writing it. Our structs are imported along with StarknetOS and Poseidon hash functions. We will learn how & why we use them:
+Let's define our contract, and start writing it. Our structs are imported along with StarknetOS functions like `get_block_timestamp`. We will learn how & why we use them:
 ```rs
 #[starknet::contract]
 mod Crowdfunding {
-    use super::{Campaign, Funder};
-    use starknet::{ContractAddress, get_caller_address, get_contract_address, get_block_timestamp};
-    use core::poseidon::{PoseidonTrait, poseidon_hash_span};
-    use core::hash::{HashStateTrait, HashStateExTrait};
-    use core::traits::{Into};
+    use super::{Campaign, Funder, IERC20Dispatcher, IERC20DispatcherTrait};
+    use starknet::{
+        ContractAddress, get_caller_address, get_contract_address, get_block_timestamp,
+        contract_address_const,
+    };
 
     #[storage]
     struct Storage {
         campaign_no: u64,
         campaign_duration: u64,
         campaigns: LegacyMap<u64, Campaign>,
-        funder_no: LegacyMap<felt252, Funder>,
+        funder_contribution: LegacyMap<(u64, ContractAddress), Funder>
     }
 
     #[constructor]
@@ -101,10 +105,11 @@ mod Crowdfunding {
 }
 ```
 Also, the storage component of the Cairo contract is defined which contains the current campaign number, campaign duration and two legacy maps. This part is really important because this is where we manage the state of our contract.
+
 - Campaign_no: We need campaign_no because we want to store the Campaign info for each campaign to see when the campaign ends, and whether or not the campaign reached its goal.
 - Campaign_duration: It is the same for each campaign and is set by the contract deployer in the constructor function. This part is customizable: you can set it to 1 year or 2 weeks, up to you! 
 - Campaigns: This legacy maps stores Campaign struct as a value corresponding to a campaign_no key.
-- Funder_no: This is where we store a funder's address and funded amount to a campaign. It is not possible to store an array of Funder structs in Campaign struct in Cairo to keep the Funder list for each campaign, so we can create an identifier for each Funder for each campaign using the Poseidon hash. How the hash is derived will be explained below in the `get_funder_identifier` function.
+- Funder_contribution: This is where we store a funder's address and funded amount to a campaign. We have (Funder address, campaign_no) as a key to the LegacyMap. In this way, we can get how much funds an address contributed to a given campaign.
 
 Additionally, the constructor function is written. Constructor function is called only when the contract is being deployed. In our constructor function, we set the campaign_duration for each campaign, so we will need to specify the duration (in seconds) while deploying our contract.
 
@@ -121,9 +126,12 @@ Now, let's write `create_campaign` function for our contract. We have to put our
             _token_addr: ContractAddress,
             _goal: u256
         ) {
+            //We do not want the users to enter an empty address for the beneficiary.
+            //The reason: funds would not be withdrawable.
+            assert(_beneficiary != contract_address_const::<0>(), 'Empty address');
+
             let new_campaign_no: u64 = self.campaign_no.read() + 1;
             self.campaign_no.write(new_campaign_no); //update current campaign_no
-
             let new_campaign: Campaign = Campaign {
                 name: _name,
                 beneficiary: _beneficiary,
@@ -142,27 +150,6 @@ Now, let's write `create_campaign` function for our contract. We have to put our
 
 When a campaign is created, it is assigned a new campaign number. Then, a Campaign struct variable is created with struct variables, and end_time is also set. In order to set the end_time timestamp, we call `get_block_timestamp()` function to get the current timestamp and add it to the campaign_duration variable. Afterwards, the new campaign is written to the new campaign_no key in a mapping.
 
-In order to proceed with other functions, we need to write our functions: `get_funder_identifier` and `get_funder_contribution`. We want to obtain how much fund each address contributed for a campaign, and it is not possible to store a list of Funder struct in Campaign struct in Cairo, so we can make use of the Poseidon hash function! If we have campaign_no and the address of the funder as an input to the Poseidon hash function, we will get a unique identifier_hash for each funder address for each campaign, so we will be able to keep a record of how much contribution each address made for each campaign. In `get_funder_contribution`, the identifier_hash is provided, and the amount of funds the address contributed (which the identifier_hash corresponds to) is returned.
-
-```rs
-//inside CrowdfundingImpl
-    fn get_funder_identifier(
-            self: @ContractState, campaign_no: u64, funder_addr: ContractAddress
-        ) -> felt252 {
-            let identifier_hash = PoseidonTrait::new()
-                .update(campaign_no.into())
-                .update(funder_addr.into())
-                .finalize();
-
-            identifier_hash
-        }
-    fn get_funder_contribution(self: @ContractState, identifier_hash: felt252) -> u256 {
-            let funder = self.funder_no.read(identifier_hash);
-
-            funder.amount_funded
-        }
-```
-
 
 Next function we need is the `contribute`. In this function, we will transfer the contributors' tokens into our contract. Firstly, we need our users to approve the function (will be done in Starknet-js), and then execute the `transfer_from` function in our contract with an amount they provide in the function parameter. 
 
@@ -170,26 +157,22 @@ Next function we need is the `contribute`. In this function, we will transfer th
 //inside CrowdfundingImpl
     fn contribute(ref self: ContractState, campaign_no: u64, amount: u256) {
             let mut campaign = self.campaigns.read(campaign_no);
+
+            //Funders should not be able to contribute to a non-existing campaign.
+            assert(campaign.beneficiary != contract_address_const::<0>(), 'Campaign not found');
             assert(get_block_timestamp() < campaign.end_time, 'Campaign ended');
 
-            campaign.amount += amount; //update the campaign's total fund amount
-            campaign.numFunders += 1; //increment the number of funders
+            campaign.amount += amount;
+            campaign.numFunders += 1;
 
-            //obtain the address which called the function a.k.a the funder
-            let funder_addr = get_caller_address(); 
-            //call the funder identifier function
-            let funder_identifier: felt252 = self.get_funder_identifier(campaign_no, funder_addr);
-            //using the identifier_hash, get the current funder amount, and add the new amount to it.
-            let new_funder_amount = amount + self.get_funder_contribution(funder_identifier);
-            //create a Funder variable with the updated amount
-            let funder = Funder { funder_addr: funder_addr, amount_funded: new_funder_amount };
+            let funder_addr = get_caller_address();
+            let funder = self.get_funder_info(campaign_no, funder_addr);
+            let new_funder_amount = amount + funder.amount_funded;
+            let new_funder = Funder { funder_addr: funder_addr, amount_funded: new_funder_amount };
 
-            //write the new Funder variable to the mapping storage
-            self.funder_no.write(funder_identifier, funder);
-            //update the campaign info with the updated amount + numFunders.
+            self.funder_contribution.write((campaign_no, funder_addr), new_funder);
             self.campaigns.write(campaign_no, campaign);
 
-            //call the transfer_from function in the token contract.
             IERC20Dispatcher { contract_address: campaign.token_addr }
                 .transfer_from(funder_addr, get_contract_address(), amount);
         }
@@ -201,31 +184,14 @@ Note that IERC20Dispatcher is used which we have not covered yet. Let's dive int
 
 ```rs
 //outside the mod Crowdfunding{}
-trait IERC20DispatcherTrait<T> {
-    fn transfer_from(self: T, sender: ContractAddress, recipient: ContractAddress, amount: u256);
-    fn transfer(self: T, recipient: ContractAddress, amount: u256);
+#[starknet::interface]
+trait IERC20<T> {
+    fn transfer_from(ref self: T, sender: ContractAddress, recipient: ContractAddress, amount: u256);
+    fn transfer(ref self: T, recipient: ContractAddress, amount: u256);
 }
 ```
 
-Then, let's implement the functions in the trait. However, in this case, we do not need to write any code inside the functions; `starknet::call_contract_syscall` is called instead which triggers the function from the contract. Additionally, the struct `IERC20Dispatcher` is defined which only takes in a contract address (the contract we want to call a function from):
-```rs
-//outside the mod Crowdfunding{}
-#[derive(Copy, Drop, Serde, starknet::Store)]
-struct IERC20Dispatcher {
-    contract_address: ContractAddress,
-}
-
-impl IERC20DispatcherImpl of IERC20DispatcherTrait<IERC20Dispatcher> {
-    fn transfer_from(
-        self: IERC20Dispatcher, sender: ContractAddress, recipient: ContractAddress, amount: u256
-    ) { // starknet::call_contract_syscall is called in here 
-    }
-    fn transfer(
-        self: IERC20Dispatcher, recipient: ContractAddress, amount: u256
-    ) { // starknet::call_contract_syscall is called in here 
-    }
-}
-```
+The struct `IERC20Dispatcher` and the trait `IERC20DispatcherTrait` are automatically created by the compiler (which we imported above). The trait is defined which only takes in a contract address (the contract we want to call a function from). See below how we implement it:
 
 Now, we are good to go! Let's write the `withdraw_funds` function which is meant to be triggered by the beneficiary of the campaign if the campaign reaches its goal and end time:
 ```rs
@@ -261,14 +227,11 @@ Next, let's write the `withdraw_contribution` function which can only be called 
 fn withdraw_contribution(ref self: ContractState, campaign_no: u64) {
     //Get the campaign info
     let campaign = self.campaigns.read(campaign_no);
-    //Obtain the identifier hash of the funder
-    let funder_identifier = self.get_funder_identifier(campaign_no, get_caller_address());
+    //Get the address of who calls this function
+    let funder_addr = get_caller_address();
+    //Get the Funder struct corresponding to the address of the funder and the campaign
+    let mut funder = self.funder_contribution.read((campaign_no, funder_addr));
     //Get how much the funder address contributed for the given campaign_no
-    let contribution_amount = self.get_funder_contribution(funder_identifier);
-
-    //Get the funder info, given the identifier hash of the funder.
-    let mut funder = self.funder_no.read(funder_identifier);
-    //Assign the total amount funded to a variable to be used later.
     let amount_funded = funder.amount_funded;
 
     //Check if the campaign has ended. If it did not end yet, revert the transaction.
@@ -280,13 +243,13 @@ fn withdraw_contribution(ref self: ContractState, campaign_no: u64) {
     //Check if the address is a funder.
     //This part protects the users from sending an unnecessary transaction
     //where they could withdraw zero amount of token for a campaign.
-    assert(contribution_amount > 0, 'Not a funder');
+    assert(amount_funded > 0, 'Not a funder');
 
     //Update the funder's amount_funded to 0
     //It's important to update. Otherwise, the funder could withdraw more than their funded amount.
     funder.amount_funded = 0;
-    //Update the Funder struct corresponding to the identifier hash for the funder's address.
-    self.funder_no.write(funder_identifier, funder);
+    //Update the Funder struct corresponding to the tuple (campaign_no, funder_addr).
+    self.funder_contribution.write((campaign_no, funder_addr), funder);
 
     //Transfer the amount of token the funder gave back to the funder's address from the contract.
     IERC20Dispatcher { contract_address: campaign.token_addr }
@@ -299,28 +262,27 @@ After that, let's write the remaining view functions that will allow us to get t
 ```rs
 //inside CrowdfundingImpl
 
-    //Get the current campaign number
-    fn get_latest_campaign_no(self: @ContractState) -> u64 {
-            self.campaign_no.read()
-    }
-    //Get the Funder struct for a campaign.
-    fn get_funder_info(
+        //Get the Funder struct for a campaign.
+        fn get_funder_info(
             self: @ContractState, campaign_no: u64, funder_addr: ContractAddress
         ) -> Funder {
-            let identifier_hash = self.get_funder_identifier(campaign_no, funder_addr);
-
-            self.funder_no.read(identifier_hash)
+            self.funder_contribution.read((campaign_no, funder_addr))
         }
 
-    //Get the Campaign struct for a campaign
-    fn get_campaign_info(self: @ContractState, campaign_no: u64) -> Campaign {
-        self.campaigns.read(campaign_no)
-    }
+        //Get the Campaign struct for a campaign
+        fn get_campaign_info(self: @ContractState, campaign_no: u64) -> Campaign {
+            self.campaigns.read(campaign_no)
+        }
 
-    //Returns the current campaign_no. The number returned + 1 is the new campaign_no
-    fn get_latest_campaign_no(self: @ContractState) -> u64 {
-        self.campaign_no.read()
-    }
+        //Returns the current campaign_no. The number returned + 1 is the new campaign_no
+        fn get_latest_campaign_no(self: @ContractState) -> u64 {
+            self.campaign_no.read()
+        }
+
+        //Get the campaign duration
+        fn get_campaign_duration(self: @ContractState) -> u64 {
+            self.campaign_duration.read()
+        }
 ```
 
 ## Declaring and Deploying the Crowdfunding contract
@@ -365,7 +327,7 @@ $ npm install dotenv
 Create a file named `index.js` where we will write JavaScript code to interact with our contract. Let's start our code by importing from Starknet-js, and from other libraries we will need:
 
 ```js
-import { Account, RpcProvider, json, Contract, cairo, shortString } from 'starknet';
+import { Account, RpcProvider, json, Contract, cairo } from 'starknet';
 import fs from 'fs';
 import * as dotenv from 'dotenv';
 dotenv.config();
@@ -417,4 +379,111 @@ tokenContract.connect(account);
 crowdfundingContract.connect(account);
 ```
 
-Now, let's get started with interacting our contract.
+Now, let's get started with interacting our contract. Firstly, we will implement the read functions firstly in order to view the information regarding our contributions and campaigns.
+
+```js
+async function getFunderContribution(campaign_no, funder_addr) {
+    const funder_info = await crowdfundingContract.get_funder_info(campaign_no, funder_addr);
+    //Each component of the Struct can be retrieved like this: funder_info.amount_funded
+    console.log('Funder Contribution: ', funder_info.amount_funded.toString());
+}
+
+async function getLatestCampaignNo() {
+    const campaign_no = await crowdfundingContract.get_latest_campaign_no();
+    console.log('Current campaign no: ', campaign_no.toString());
+}
+
+async function getFunderInfo(campaign_no, funder_addr) {
+    const funder_info = await crowdfundingContract.get_funder_info(campaign_no, funder_addr);
+    console.log('Funder info: ', funder_info);
+}
+
+async function getCampaignInfo(campaign_no) {
+    const campaign_info = await crowdfundingContract.get_campaign_info(campaign_no);
+    console.log('Campaign info: ', campaign_info);
+}
+```
+
+As it can be seen, we are just calling the read functions from our contract. These functions are callable from our crowdfundingContract object thanks to the ABI of the Crowdfunding contract. In order to use these functions and see the state changes our functions will make, let's start writing the script for creating a campaign: 
+
+```js
+async function createCampaign(name, beneficiary, tokenAddress, goal) {
+    //Do not forget to implement this. ETH token has a decimal of 18.
+    const goalInWei = cairo.uint256(goal * 10 ** 18)
+
+    //construct the calldata
+    const createCall = crowdfundingContract.populate('create_campaign',
+        [name, beneficiary, tokenAddress, goalInWei])
+
+    //Sign + broadcast the transaction.
+    const tx = await crowdfundingContract.create_campaign(createCall.calldata)
+
+    //Wait for the transaction confirmation
+    await provider.waitForTransaction(tx.transaction_hash)
+    console.log('Created ', name, 'campaign');
+}
+```
+Let's call the function and create our campaign. Then, in order to call the see the Campaign info, call the `getCampaignInfo` function in our script. Run your script: 
+```js
+//Goal is 0.001 ETH
+createCampaign('StarkTest', accountAddress, ETHAddress, 0.001);
+//The campaign_no of the campaign we just created is 1
+getCampaignInfo(1)
+```
+Note that we set our campaign duration to 10 minutes. In this time, let's interact with the contribute function (comment out the code snippet right above, we will not need them for now): 
+```js
+async function contribute(campaign_no, amount) {
+    const amountInWei = cairo.uint256(amount * 10 ** 18);
+
+    //Construct the multicall
+    const approveCall = tokenContract.populate('approve',
+        [crowdfundingAddr, amountInWei]);
+    const contributeCall = crowdfundingContract.populate('contribute',
+        [campaign_no, amountInWei]);
+
+    //Sign + broadcast the multicall.
+    const multiCall = await account.execute([approveCall, contributeCall]);
+
+    await provider.waitForTransaction(multiCall.transaction_hash);
+    console.log('Contributed to the campaign_no ', campaign_no);
+}
+```
+We have utilized the multicall feature of Starknet above. Because users are depositing funds into our contract, we need our contract to transfer ETH from their account to itself, so we need the users to approve the contract to transfer ETH of the amount they allow (see the Dispatcher in the `contribute` function in the smart contract). Then, the users will be able to call the `contribute` function. We can pack these calls in one transaction: first, approve transaction is executed, and then contribute function is executed. As you can see, this feature greatly improves the UX as the users will need to sign only one transaction!
+
+Call this function, and see how the Funder and Campaign structs are updated:
+```js
+//No of the campaign we want to contribute is 1.
+contribute(1, 0.001);
+getCampaignInfo(1);
+getFunderInfo(1, accountAddress);
+```
+You will see the amount increase in Campaign, and the amount_funded increase in the Funder struct. Also, numFunders is incremented. After a few minutes, you should see your contract's balance of ETH in Voyager Explorer website [https://sepolia.voyager.online/]. You can call the contribute function from different wallets by importing their account addresses and private keys.
+
+Let's write the code for interacting with the withdraw functions:
+```js
+//can only be called by the beneficiary if the campaign reached its goal before the end-time.
+async function withdrawFunds(campaign_no) {
+    const withdrawCall = crowdfundingContract.populate('withdraw_funds',
+        [campaign_no])
+    const tx = await crowdfundingContract.withdraw_funds(withdrawCall.calldata)
+    await provider.waitForTransaction(tx.transaction_hash)
+    console.log('Withdrew funds from campaign_no ', campaign_no);
+}
+
+//can only be called by the funders if the campaign did not reach its goal after the end-time.
+async function withdrawContribution(campaign_no) {
+    const withdrawCall = crowdfundingContract.populate('withdraw_contribution',
+        [campaign_no])
+    const tx = await crowdfundingContract.withdraw_contribution(withdrawCall.calldata)
+    await provider.waitForTransaction(tx.transaction_hash)
+    console.log('Withdrew from campaign_no ', campaign_no);
+}
+```
+After 10 minutes (campaign_duration), we reached our goal because the goal was 0.001 ETH, and we contributed 0.001 ETH, so the beneficiary can withdraw the funds: 
+```js
+//Comment out the contribute function in order not to run it again.
+withdrawFunds(1);
+```
+You can create another campaign where the goal is not met so that the funders will be able to withdraw their contributions. In that case, you would call the `withdrawContribution` function.
+
+Congrats! You have written the Crowdfunding contract in Cairo, and interacted with it using Starknet-js.

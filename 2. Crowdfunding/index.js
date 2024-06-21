@@ -6,8 +6,8 @@ dotenv.config();
 const provider = new RpcProvider({ nodeUrl: 'https://free-rpc.nethermind.io/sepolia-juno' });
 //0x05b0D30B02349c93b30e02f1A0C3F3F44914D9fbA691581a7Cdfe11f88972853
 //0x067981c7F9f55BCbdD4e0d0a9C5BBCeA77dAcB42cccbf13554A847d6353F728e
-const accountAddress = '0x05b0D30B02349c93b30e02f1A0C3F3F44914D9fbA691581a7Cdfe11f88972853';
-const privateKey = process.env.PRIVATE_KEY_OTHER;
+const accountAddress = '0x067981c7F9f55BCbdD4e0d0a9C5BBCeA77dAcB42cccbf13554A847d6353F728e';
+const privateKey = process.env.PRIVATE_KEY;
 
 const account = new Account(provider, accountAddress, privateKey, "1");
 
@@ -30,9 +30,8 @@ crowdfundingContract.connect(account);
 
 async function createCampaign(name, beneficiary, tokenAddress, goal) {
     const goalInWei = cairo.uint256(goal * 10 ** 18);
-    const felt_name = shortString.encodeShortString(name)
     const createCall = crowdfundingContract.populate('create_campaign',
-        [felt_name, beneficiary, tokenAddress, goalInWei])
+        [name, beneficiary, tokenAddress, goalInWei])
     const tx = await crowdfundingContract.create_campaign(createCall.calldata)
     await provider.waitForTransaction(tx.transaction_hash)
     console.log('Created ', name, 'campaign');
@@ -89,14 +88,14 @@ async function withdrawFunds(campaign_no) {
 }
 
 //getLatestCampaignNo();
-//createCampaign('StarkTest', accountAddress, ETHAddress, 0.001);
-//contribute(1, 0.001);
+//createCampaign('Test', accountAddress, ETHAddress, 0.01);
+//contribute(4, 0.001);
 //getFunderContribution(1, accountAddress);
-//withdrawContribution(2);
+//withdrawContribution(1);
 //withdrawFunds(1)
 
 //const balance = await tokenContract.balanceOf(crowdfundingAddr)
 //console.log(balance)
 
 //getFunderInfo(1, accountAddress)
-getCampaignInfo(1)
+//getCampaignInfo(3)
