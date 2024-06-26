@@ -459,7 +459,7 @@ contribute(1, 0.001);
 getCampaignInfo(1);
 getFunderInfo(1, accountAddress);
 ```
-You will see the amount increase in Campaign, and the amount_funded increase in the Funder struct. Also, numFunders is incremented. After a few minutes, you should see your contract's balance of ETH in Voyager Explorer website [https://sepolia.voyager.online/]. You can call the contribute function from different wallets by importing their account addresses and private keys.
+You will see the amount increase in Campaign, and the amount_funded increase in the Funder struct. Also, numFunders is incremented. After a few minutes, you should see your contract's balance of ETH in [Voyager Explorer website](https://sepolia.voyager.online/). You can call the contribute function from different wallets by importing their account addresses and private keys.
 
 Let's write the code for interacting with the withdraw functions:
 ```js
