@@ -2,6 +2,10 @@
 
 In this tutorial, you will deploy a Crowdfunding contract in Cairo on Starknet Sepolia Testnet. Then, using Starknet-js, you will learn how to interact with the Crowdfunding contract.
 
+You can reach the GitHub repository of this project [here](https://github.com/egeaybars123/starknet-js-examples/tree/main/2.%20Crowdfunding).
+
+**Note**: The code in this tutorial has not been audited. It is NOT recommended to use the code in production.
+
 ## Writing Crowdfunding contract in Cairo:
 
 In order to start writing our Cairo code, the functionalities of our code should be determined. Here is what our contract should be able to do: 
@@ -287,7 +291,7 @@ After that, let's write the remaining view functions that will allow us to get t
 
 ## Declaring and Deploying the Crowdfunding contract
 
-We will declare and deploy our Crowdfunding contract using Starkli. This tutorial assumes that you already set up your account with Starkli. In order to start with introduction to Starkli, you can check [here](https://medium.com/starknet-edu/starkli-the-new-starknet-cli-86ea914a2933) and [here](https://github.com/egeaybars123/starknet-js-examples/blob/main/1.%20Simple%20Storage/README.md#declaring-and-deploying-the-simplestorage-contract).
+We will declare and deploy our Crowdfunding contract using Starkli. This tutorial assumes that you already set up your account with Starkli. In order to start with introduction to Starkli, you can check [here](https://github.com/xJonathanLEI/starkli) and [here](../getting-started/interacting/how_to_deploy.md).
 
 **Note:** The command below is written to run in the directory of the Scarb folder.
 **Note:** The `--watch` takes the `./target/dev/project_name_ContractName.contract_class.json` as an argument where the Sierra program and the ABI of the contract is stored.
@@ -348,9 +352,7 @@ Import the necessary classes and functions from the starknet-js module and other
 
 Next, we will need the ABI for the contracts we will interact with. The contracts we will be interacting with are ERC20 contracts (it could be ETH, STRK or your own token) and our Crowdfunding contract. 
 
-For the ERC20 ABI, we can copy it from [ETH contract](https://sepolia.starkscan.co/contract/0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7#class-code-history) on Starknet Sepolia Testnet or simply get it from [this](https://github.com/egeaybars123/starknet-js-examples/blob/main/2.%20Crowdfunding/erc20_abi.json) repository.
-
-For the Crowdfunding contract ABI, you can copy it from `./target/dev/crowdfunding_Crowdfunding.contract_class.json` in your Scarb folder.
+For the ERC20 ABI, we can copy it from [ETH contract](https://sepolia.starkscan.co/contract/0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7#class-code-history) on Starknet Sepolia Testnet from the **Copy ABI Code** button. For the Crowdfunding contract ABI, you can copy it from `./target/dev/crowdfunding_Crowdfunding.contract_class.json` in your Scarb folder. Paste the ABI content into two different json files `erc20_abi.json` and `crowdfunding_abi.json`.
 
 ```js
 const compiledERC20Abi = json.parse(
